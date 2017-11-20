@@ -47,6 +47,8 @@ extern "C" {
     fn GRBsetdblattr(model: *mut GurobiModel, attr_id: *const c_char, value: c_double) -> ErrorCode;
     fn GRBgetdblattr(model: *mut GurobiModel, attr_id: *const c_char, value: *mut c_double) -> ErrorCode;
     fn GRBgetdblattrarray(model: *mut GurobiModel, attr_id: *const c_char, start: c_int, len: c_int, values: *mut c_double) -> ErrorCode;
+    fn GRBsetdblattrarray(model: *mut GurobiModel, attr_id: *const c_char, start: c_int, len: c_int, values: *const c_double) -> ErrorCode;
+    fn GRBsetdblattrelement(model: *mut GurobiModel, attr_id: *const c_char, index: c_int, value: c_double) -> ErrorCode;
 
     // parameter manipulation
     fn GRBsetintparam(env: *mut GurobiEnv, paramname: *const c_char, value: c_int) -> ErrorCode;
@@ -162,6 +164,39 @@ impl<'a> Model<'a> {
         unsafe {
             code_to_result(
                 GRBupdatemodel(self.inner),
+                self.env.inner
+            )
+        }
+    }
+
+    /// Set starting values for the given variables. If this function returns `Err(_)` it may have
+    /// set only some of the starting values. The number of successfully set variables is the first
+    /// value in the tuple returned.
+    ///
+    /// If the variable range is contiguous, instead use the `initial_values_range` method.
+    pub fn initial_values<V: Borrow<VarIndex>, I: IntoIterator<Item=V>, F: Borrow<f64>, J: IntoIterator<Item=F>>(&mut self, vars: I, vals: J) -> Result<(), (usize, &str)> {
+        let mut successes = 0;
+        for (var, val) in vars.into_iter().zip(vals) {
+            unsafe {
+                code_to_result(
+                    GRBsetdblattrelement(self.inner, name("Start").as_ptr(), var.borrow().id(), *val.borrow()),
+                    self.env.inner
+                ).map_err(|e| (successes, e))?
+            }
+            successes += 1;
+        }
+        Ok(())
+    }
+
+    /// Set starting values for the variables in the range [start, end]. If this function returns `Err(_)` it may have
+    /// set only some of the starting values. The number of successfully set variables is the first
+    /// value in the tuple returned.
+    pub fn initial_values_range(&mut self, start: VarIndex, end: VarIndex, vals: &[f64]) -> Result<(), &str> {
+        let len = end.id() - start.id() + 1;
+        assert_eq!(len, vals.len() as c_int);
+        unsafe {
+            code_to_result(
+                GRBsetdblattrarray(self.inner, name("Start").as_ptr(), start.id(), len, vals.as_ptr()),
                 self.env.inner
             )
         }
@@ -422,6 +457,18 @@ mod test {
 
         let con = Constraint::build().sum(&[x, y]).plus(z, 2.0).equals(3.0);
         model.add_con(con).unwrap();
+    }
+
+    #[test]
+    fn set_initial() {
+        let mut env = Env::new();
+        let mut model = Model::new(&env).unwrap();
+        let x = model.add_var(1.0, VariableType::Binary).unwrap();
+        let y = model.add_var(1.0, VariableType::Binary).unwrap();
+        let z = model.add_var(1.0, VariableType::Binary).unwrap();
+
+        model.initial_values(&[x, z], &[1.0, 1.0]).unwrap();
+        model.initial_values_range(x, z, &[1.0, 0.0, 1.0]).unwrap();
     }
 
     #[test]
