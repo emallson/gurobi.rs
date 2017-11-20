@@ -1,0 +1,10 @@
+[package]
+authors = ["J David Smith <emallson@atlanis.net>"]
+name = "gurobi"
+version = "0.1.0"
+
+[build-dependencies]
+glob = "0.2.11"
+
+[dependencies]
+libc = "0.2.33"
