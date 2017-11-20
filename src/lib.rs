@@ -1,7 +1,7 @@
 extern crate libc;
 
 use libc::{c_int, c_char, c_double};
-use std::ffi::CStr;
+use std::ffi::{CString, CStr};
 use std::ptr;
 use std::borrow::Borrow;
 
@@ -48,6 +48,9 @@ extern "C" {
     fn GRBgetdblattr(model: *mut GurobiModel, attr_id: *const c_char, value: *mut c_double) -> ErrorCode;
     fn GRBgetdblattrarray(model: *mut GurobiModel, attr_id: *const c_char, start: c_int, len: c_int, values: *mut c_double) -> ErrorCode;
 
+    // parameter manipulation
+    fn GRBsetintparam(env: *mut GurobiEnv, paramname: *const c_char, value: c_int) -> ErrorCode;
+
     // freeing
     fn GRBfreemodel(model: *mut GurobiModel);
     fn GRBfreeenv(env: *mut GurobiEnv);
@@ -61,8 +64,8 @@ fn code_to_result<'a>(code: ErrorCode, env: *mut GurobiEnv) -> Result<(), &'a st
     }
 }
 
-fn name(s: &str) -> *const c_char {
-    s.as_ptr() as *const c_char
+fn name(s: &str) -> CString {
+    CString::new(s).unwrap()
 }
 
 /// A Gurobi Environment. Create using `::new()`. Automatically freed on drop.
@@ -77,6 +80,15 @@ impl Env {
             GRBloadenv(&mut env, ptr::null());
         }
         Env { inner: env }
+    }
+
+    pub fn set_threads(&mut self, threads: usize) -> Result<(), &str> {
+        unsafe {
+            code_to_result(
+                GRBsetintparam(self.inner, name("Threads").as_ptr(), threads as c_int),
+                self.inner
+            )
+        }
     }
 }
 
@@ -142,7 +154,7 @@ impl<'a> Model<'a> {
 
     pub fn set_objective_type(&mut self, obj: ObjectiveType) -> Result<(), &str> {
         unsafe {
-            code_to_result(GRBsetintattr(self.inner, name("ModelSense"), obj.sense()), self.env.inner)
+            code_to_result(GRBsetintattr(self.inner, name("ModelSense").as_ptr(), obj.sense()), self.env.inner)
         }
     }
 
@@ -345,7 +357,7 @@ impl<'a, 'b: 'a> Solution<'a, 'b> {
     pub fn value(&self) -> Result<f64, &str> {
         unsafe {
             let mut val = 0.0;
-            code_to_result(GRBgetdblattr(self.model.inner, name("ObjVal"), &mut val),
+            code_to_result(GRBgetdblattr(self.model.inner, name("ObjVal").as_ptr(), &mut val),
                            self.model.env.inner).map(|_| val)
         }
     }
@@ -353,14 +365,14 @@ impl<'a, 'b: 'a> Solution<'a, 'b> {
     fn raw_vars(&self, start: usize, len: usize) -> Result<Vec<f64>, &str> {
         unsafe {
             let mut buf = vec![0.0; len];
-            code_to_result(GRBgetdblattrarray(self.model.inner, name("X"), start as c_int, len as c_int, buf.as_mut_slice().as_mut_ptr()), self.model.env.inner)?;
+            code_to_result(GRBgetdblattrarray(self.model.inner, name("X").as_ptr(), start as c_int, len as c_int, buf.as_mut_slice().as_mut_ptr()), self.model.env.inner)?;
             Ok(buf)
         }
     }
 
     pub fn variables(&self, first: VarIndex, last: VarIndex) -> Result<Vec<f64>, &str> {
         let start = first.0;
-        let len = last.0 - start;
+        let len = last.0 - start + 1;
         self.raw_vars(start, len)
     }
 }
@@ -415,6 +427,7 @@ mod test {
     #[test]
     fn mip1() {
         let mut env = Env::new();
+        env.set_threads(6).unwrap();
         let mut model = Model::new(&env).unwrap();
         let x = model.add_var(1.0, VariableType::Binary).unwrap();
         let y = model.add_var(1.0, VariableType::Binary).unwrap();
@@ -426,6 +439,8 @@ mod test {
         model.set_objective_type(ObjectiveType::Maximize);
 
         let sol = model.optimize().unwrap();
-        assert_eq!(sol.value().unwrap(), 1.0);
+        assert_eq!(sol.value().unwrap(), 2.0);
+        let vars = sol.variables(x, z).unwrap();
+        assert_eq!(vars, vec![1.0, 1.0, 0.0]);
     }
 }
