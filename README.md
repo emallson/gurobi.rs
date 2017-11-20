@@ -18,7 +18,6 @@ statically linked to via the C API (as far as I know) so it must also be
 available on each machine that you intend to run a program using `gurobi.rs`
 on, including the license.
 
-[Documentation](http://atlanis.net/doc/rs/rplex/)
 
 # Example
 
