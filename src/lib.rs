@@ -46,13 +46,14 @@ extern "C" {
     fn GRBgetintattr(model: *mut GurobiModel, attr_id: *const c_char, value: *mut c_int) -> ErrorCode;
     fn GRBsetdblattr(model: *mut GurobiModel, attr_id: *const c_char, value: c_double) -> ErrorCode;
     fn GRBgetdblattr(model: *mut GurobiModel, attr_id: *const c_char, value: *mut c_double) -> ErrorCode;
+    fn GRBgetdblattrarray(model: *mut GurobiModel, attr_id: *const c_char, start: c_int, len: c_int, values: *mut c_double) -> ErrorCode;
 
     // freeing
     fn GRBfreemodel(model: *mut GurobiModel);
     fn GRBfreeenv(env: *mut GurobiEnv);
 }
 
-fn code_to_result<'a>(code: c_int, env: *mut GurobiEnv) -> Result<(), &'a str> {
+fn code_to_result<'a>(code: ErrorCode, env: *mut GurobiEnv) -> Result<(), &'a str> {
     if code == 0 {
         Ok(())
     } else {
@@ -347,6 +348,20 @@ impl<'a, 'b: 'a> Solution<'a, 'b> {
             code_to_result(GRBgetdblattr(self.model.inner, name("ObjVal"), &mut val),
                            self.model.env.inner).map(|_| val)
         }
+    }
+
+    fn raw_vars(&self, start: usize, len: usize) -> Result<Vec<f64>, &str> {
+        unsafe {
+            let mut buf = vec![0.0; len];
+            code_to_result(GRBgetdblattrarray(self.model.inner, name("X"), start as c_int, len as c_int, buf.as_mut_slice().as_mut_ptr()), self.model.env.inner)?;
+            Ok(buf)
+        }
+    }
+
+    pub fn variables(&self, first: VarIndex, last: VarIndex) -> Result<Vec<f64>, &str> {
+        let start = first.0;
+        let len = last.0 - start;
+        self.raw_vars(start, len)
     }
 }
 
