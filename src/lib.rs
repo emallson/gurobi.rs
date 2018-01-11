@@ -58,11 +58,11 @@ extern "C" {
     fn GRBfreeenv(env: *mut GurobiEnv);
 }
 
-fn code_to_result<'a>(code: ErrorCode, env: *mut GurobiEnv) -> Result<(), &'a str> {
+fn code_to_result<'a>(code: ErrorCode, env: *mut GurobiEnv) -> Result<(), String> {
     if code == 0 {
         Ok(())
     } else {
-        Err(unsafe { CStr::from_ptr(GRBgeterrormsg(env)).to_str().unwrap() })
+        Err(format!("Error Code {}: {}", code, unsafe { CStr::from_ptr(GRBgeterrormsg(env)).to_str().unwrap() }))
     }
 }
 
@@ -84,7 +84,7 @@ impl Env {
         Env { inner: env }
     }
 
-    pub fn set_threads(&mut self, threads: usize) -> Result<(), &str> {
+    pub fn set_threads(&mut self, threads: usize) -> Result<(), String> {
         unsafe {
             code_to_result(
                 GRBsetintparam(self.inner, name("Threads").as_ptr(), threads as c_int),
@@ -109,7 +109,7 @@ pub struct Model<'a> {
 
 impl<'a> Model<'a> {
     /// Creates a new, empty model within the given environment.
-    pub fn new(env: &'a Env) -> Result<Self, &str> {
+    pub fn new(env: &'a Env) -> Result<Self, String> {
         let mut model = ptr::null_mut();
         let res = unsafe {
             code_to_result(GRBnewmodel(env.inner,
@@ -129,7 +129,7 @@ impl<'a> Model<'a> {
         })
     }
 
-    pub fn add_var(&mut self, obj: f64, kind: VariableType) -> Result<VarIndex, &str> {
+    pub fn add_var(&mut self, obj: f64, kind: VariableType) -> Result<VarIndex, String> {
         unsafe {
             code_to_result(GRBaddvar(self.inner, 
                                      0, ptr::null(), ptr::null(), 
@@ -142,7 +142,7 @@ impl<'a> Model<'a> {
         })
     }
 
-    pub fn add_con(&mut self, con: Constraint) -> Result<ConIndex, &str> {
+    pub fn add_con(&mut self, con: Constraint) -> Result<ConIndex, String> {
         unsafe {
             code_to_result(
                 GRBaddconstr(self.inner, con.numnz(), con.indices.as_ptr(), con.weights.as_ptr(), con.sense.sense(), con.rhs, ptr::null()),
@@ -154,13 +154,13 @@ impl<'a> Model<'a> {
         })
     }
 
-    pub fn set_objective_type(&mut self, obj: ObjectiveType) -> Result<(), &str> {
+    pub fn set_objective_type(&mut self, obj: ObjectiveType) -> Result<(), String> {
         unsafe {
             code_to_result(GRBsetintattr(self.inner, name("ModelSense").as_ptr(), obj.sense()), self.env.inner)
         }
     }
 
-    pub fn update(&mut self) -> Result<(), &str> {
+    pub fn update(&mut self) -> Result<(), String> {
         unsafe {
             code_to_result(
                 GRBupdatemodel(self.inner),
@@ -174,7 +174,7 @@ impl<'a> Model<'a> {
     /// value in the tuple returned.
     ///
     /// If the variable range is contiguous, instead use the `initial_values_range` method.
-    pub fn initial_values<V: Borrow<VarIndex>, I: IntoIterator<Item=V>, F: Borrow<f64>, J: IntoIterator<Item=F>>(&mut self, vars: I, vals: J) -> Result<(), (usize, &str)> {
+    pub fn initial_values<V: Borrow<VarIndex>, I: IntoIterator<Item=V>, F: Borrow<f64>, J: IntoIterator<Item=F>>(&mut self, vars: I, vals: J) -> Result<(), (usize, String)> {
         let mut successes = 0;
         for (var, val) in vars.into_iter().zip(vals) {
             unsafe {
@@ -191,7 +191,7 @@ impl<'a> Model<'a> {
     /// Set starting values for the variables in the range [start, end]. If this function returns `Err(_)` it may have
     /// set only some of the starting values. The number of successfully set variables is the first
     /// value in the tuple returned.
-    pub fn initial_values_range(&mut self, start: VarIndex, end: VarIndex, vals: &[f64]) -> Result<(), &str> {
+    pub fn initial_values_range(&mut self, start: VarIndex, end: VarIndex, vals: &[f64]) -> Result<(), String> {
         let len = end.id() - start.id() + 1;
         assert_eq!(len, vals.len() as c_int);
         unsafe {
@@ -202,7 +202,7 @@ impl<'a> Model<'a> {
         }
     }
 
-    pub fn optimize(&mut self) -> Result<Solution, &str> {
+    pub fn optimize(&mut self) -> Result<Solution, String> {
         unsafe {
             code_to_result(
                 GRBoptimize(self.inner),
@@ -389,7 +389,7 @@ pub struct Solution<'a, 'b: 'a> {
 }
 
 impl<'a, 'b: 'a> Solution<'a, 'b> {
-    pub fn value(&self) -> Result<f64, &str> {
+    pub fn value(&self) -> Result<f64, String> {
         unsafe {
             let mut val = 0.0;
             code_to_result(GRBgetdblattr(self.model.inner, name("ObjVal").as_ptr(), &mut val),
@@ -397,7 +397,7 @@ impl<'a, 'b: 'a> Solution<'a, 'b> {
         }
     }
 
-    fn raw_vars(&self, start: usize, len: usize) -> Result<Vec<f64>, &str> {
+    fn raw_vars(&self, start: usize, len: usize) -> Result<Vec<f64>, String> {
         unsafe {
             let mut buf = vec![0.0; len];
             code_to_result(GRBgetdblattrarray(self.model.inner, name("X").as_ptr(), start as c_int, len as c_int, buf.as_mut_slice().as_mut_ptr()), self.model.env.inner)?;
@@ -405,7 +405,7 @@ impl<'a, 'b: 'a> Solution<'a, 'b> {
         }
     }
 
-    pub fn variables(&self, first: VarIndex, last: VarIndex) -> Result<Vec<f64>, &str> {
+    pub fn variables(&self, first: VarIndex, last: VarIndex) -> Result<Vec<f64>, String> {
         let start = first.0;
         let len = last.0 - start + 1;
         self.raw_vars(start, len)
