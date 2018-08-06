@@ -34,6 +34,7 @@ extern "C" {
 
     // optimize
     fn GRBoptimize(model: *mut GurobiModel) -> ErrorCode;
+    fn GRBwrite(model: *mut GurobiModel, filename: *const c_char) -> ErrorCode;
 
     // add a variable
     fn GRBaddvar(model: *mut GurobiModel, numnz: c_int, vind: *const c_int, vval: *const c_double, obj: c_double, lb: c_double, ub: c_double, vtype: c_char, varname: *const c_char) -> ErrorCode;
@@ -127,6 +128,12 @@ impl<'a> Model<'a> {
         res.map(|_| Model {
             env, inner: model, num_vars: 0, num_constraints: 0,
         })
+    }
+
+    pub fn write(&mut self, path: &str) -> Result<(), String> {
+        unsafe {
+            code_to_result(GRBwrite(self.inner, CString::new(path).unwrap().as_ptr()), self.env.inner)
+        }
     }
 
     pub fn add_var(&mut self, obj: f64, kind: VariableType) -> Result<VarIndex, String> {
