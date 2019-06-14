@@ -2,7 +2,6 @@ extern crate glob;
 use glob::glob;
 
 fn main() {
-
     let env_path = option_env!("GUROBI_HOME");
 
     if let Some(gurobi_home) = env_path {
@@ -16,5 +15,5 @@ fn main() {
         }
     }
 
-    println!("cargo:rustc-link-lib=gurobi75");
+    println!("cargo:rustc-link-lib=gurobi81");
 }
